@@ -1,0 +1,15 @@
+# Dockerfile for Data Extractor
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application files
+COPY data_extractor.py .
+COPY .env .
+
+# Run the extractor
+CMD ["python", "data_extractor.py"]

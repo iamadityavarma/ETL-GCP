@@ -1,0 +1,107 @@
+# GCP Workflows - ETL Pipeline Orchestration
+# This workflow runs: data_extractor -> data_loader -> data_validator
+# Each step only runs if the previous one succeeds
+
+main:
+  params: [args]
+  steps:
+    - init:
+        assign:
+          - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - region: "us-central1"
+          - extract_status: "not_started"
+          - load_status: "not_started"
+          - validate_status: "not_started"
+
+    # Step 1: Run Data Extractor
+    - run_data_extractor:
+        call: http.post
+        args:
+          url: ${"https://" + region + "-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/" + project_id + "/jobs/data-extractor-job:run"}
+          auth:
+            type: OAuth2
+        result: extract_result
+
+    - log_extract_status:
+        call: sys.log
+        args:
+          text: ${"Data Extractor completed with status: " + string(extract_result.status)}
+          severity: INFO
+
+    - check_extract_success:
+        switch:
+          - condition: ${extract_result.status == 200}
+            next: run_data_loader
+        next: extract_failed
+
+    # Step 2: Run Data Loader (only if extractor succeeded)
+    - run_data_loader:
+        call: http.post
+        args:
+          url: ${"https://" + region + "-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/" + project_id + "/jobs/data-loader-job:run"}
+          auth:
+            type: OAuth2
+        result: load_result
+
+    - log_load_status:
+        call: sys.log
+        args:
+          text: ${"Data Loader completed with status: " + string(load_result.status)}
+          severity: INFO
+
+    - check_load_success:
+        switch:
+          - condition: ${load_result.status == 200}
+            next: run_data_validator
+        next: load_failed
+
+    # Step 3: Run Data Validator (only if loader succeeded)
+    - run_data_validator:
+        call: http.post
+        args:
+          url: ${"https://" + region + "-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/" + project_id + "/jobs/data-validator-job:run"}
+          auth:
+            type: OAuth2
+        result: validate_result
+
+    - log_validate_status:
+        call: sys.log
+        args:
+          text: ${"Data Validator completed with status: " + string(validate_result.status)}
+          severity: INFO
+
+    - check_validate_success:
+        switch:
+          - condition: ${validate_result.status == 200}
+            next: pipeline_success
+        next: validate_failed
+
+    # Success and failure handlers
+    - pipeline_success:
+        return:
+          status: "SUCCESS"
+          message: "ETL pipeline completed successfully"
+          extract_status: ${extract_result.status}
+          load_status: ${load_result.status}
+          validate_status: ${validate_result.status}
+
+    - extract_failed:
+        return:
+          status: "FAILED"
+          message: "Data extraction failed"
+          extract_status: ${extract_result.status}
+
+    - load_failed:
+        return:
+          status: "FAILED"
+          message: "Data loading failed"
+          extract_status: ${extract_result.status}
+          load_status: ${load_result.status}
+
+    - validate_failed:
+        return:
+          status: "FAILED"
+          message: "Data validation failed"
+          extract_status: ${extract_result.status}
+          load_status: ${load_result.status}
+          validate_status: ${validate_result.status}
