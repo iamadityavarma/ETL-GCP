@@ -1,0 +1,49 @@
+# Testing Dependencies for GCP ETL Pipeline
+# Install with: pip install -r requirements-test.txt
+
+# Core testing framework
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Unit testing (built-in, but listed for clarity)
+# unittest is part of Python standard library
+
+# Mocking and testing utilities
+mock==5.1.0
+
+# Code coverage
+coverage==7.3.2
+
+# Testing for async code (if needed in future)
+pytest-asyncio==0.21.1
+
+# HTTP mocking for API tests
+responses==0.24.1
+requests-mock==1.11.0
+
+# Database testing utilities
+pytest-postgresql==5.0.0
+testing.postgresql==1.3.0
+
+# BigQuery testing
+# Note: Use mocks for BigQuery testing to avoid actual API calls
+# google-cloud-bigquery is already in main requirements.txt
+
+# Data validation testing
+faker==20.1.0  # For generating test data
+hypothesis==6.92.1  # Property-based testing
+
+# Test reporting
+pytest-html==4.1.1
+pytest-json-report==1.5.0
+
+# Linting and code quality (optional)
+flake8==6.1.0
+pylint==3.0.3
+black==23.12.1
+
+# Type checking (optional)
+mypy==1.7.1
+types-requests==2.31.0.10
+types-psycopg2==2.9.21.16

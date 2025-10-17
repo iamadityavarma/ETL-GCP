@@ -1,5 +1,0 @@
-steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/fluent-grin-474614-d8/data-validator', '-f', 'Dockerfile.validator', '.']
-images:
-  - 'gcr.io/fluent-grin-474614-d8/data-validator'

@@ -1,0 +1,105 @@
+# Cloud Build CI/CD Pipeline
+# Runs unit tests, builds Docker images, and pushes to Artifact Registry
+
+steps:
+  # Step 1: Install dependencies and run unit tests
+  - name: 'python:3.11-slim'
+    id: 'run-tests'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Installing dependencies..."
+        pip install --no-cache-dir -r requirements.txt
+        pip install --no-cache-dir -r requirements-test.txt
+
+        echo "Running unit tests (excluding integration tests)..."
+        pytest tests/ -v --tb=short -m "not integration" --cov=. --cov-report=term-missing --cov-report=xml
+
+        echo "Tests completed successfully!"
+
+  # Step 2: Build Docker image for data-extractor
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-extractor'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.extractor'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-extractor:$COMMIT_SHA'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-extractor:latest'
+      - '.'
+    waitFor: ['run-tests']
+
+  # Step 3: Build Docker image for data-loader
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-loader'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.loader'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-loader:$COMMIT_SHA'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-loader:latest'
+      - '.'
+    waitFor: ['run-tests']
+
+  # Step 4: Build Docker image for data-validator
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-validator'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.validator'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-validator:$COMMIT_SHA'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-validator:latest'
+      - '.'
+    waitFor: ['run-tests']
+
+  # Step 5: Push data-extractor image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-extractor'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-extractor'
+    waitFor: ['build-extractor']
+
+  # Step 6: Push data-loader image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-loader'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-loader'
+    waitFor: ['build-loader']
+
+  # Step 7: Push data-validator image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-validator'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-validator'
+    waitFor: ['build-validator']
+
+# Build timeout (default 10 minutes)
+timeout: '1200s'
+
+# Images to push to Artifact Registry
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-extractor:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-extractor:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-loader:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-loader:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-validator:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/etl-pipeline/data-validator:latest'
+
+# Build options
+options:
+  machineType: 'N1_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

@@ -4,30 +4,21 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
 venv/
 env/
 ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+.venv
 
-# Testing
-.coverage
-.pytest_cache/
-htmlcov/
-.tox/
+# Environment Variables
+.env
+*.env
+!.env.example
 
 # IDE
 .vscode/
@@ -35,11 +26,43 @@ htmlcov/
 *.swp
 *.swo
 *~
+.DS_Store
 
-# Environment
-.env
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+coverage.xml
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Database
+*.db
+*.sqlite3
+
+# GCP Credentials
+*.json
+!lifecycle.json
+*-key.json
+credentials/
+
+# Temporary files
+*.tmp
+*.bak
+tmp/
+temp/
 
 # OS
-.DS_Store
 Thumbs.db
+.DS_Store
 
+# Claude
+.claude/
+
+# Logs
+logs/
+*.log

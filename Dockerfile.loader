@@ -9,7 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY data_loader.py .
-COPY .env .
+
+# Note: .env file is NOT copied - environment variables come from GCP Secret Manager or Cloud Run/GKE config
 
 # Run the loader
 CMD ["python", "data_loader.py"]

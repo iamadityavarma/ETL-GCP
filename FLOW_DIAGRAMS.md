@@ -20,7 +20,7 @@ START: run_pipeline()
    ├─► [STEP 2] Extract Data from CDC API
    │              │
    │              ├─► Create HTTP Session with retry strategy
-   │              │    └─► Retry: 3 attempts, backoff on 429/500/502/503/504
+   │              │    └─► Retry: 3 attempts, backoff on 429(Too Many Requests)/500(Internal Server Error)/502(Bad Gateway)/503(Service Unavailable)/504(Gateway Timeout)
    │              │
    │              ├─► Make GET request to CDC_API_URL
    │              │    └─► Timeout: 180 seconds

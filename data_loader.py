@@ -32,6 +32,8 @@ import pandas_gbq
 # Environment & Logging Configuration
 # ================================================================
 
+# Load .env file if it exists (for local development only)
+# In production (GCP), environment variables come from Secret Manager or Cloud Run/GKE config
 load_dotenv()
 
 logging.basicConfig(
@@ -47,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 class Config:
     DB_HOST = os.getenv('DB_HOST')
+    DB_HOST_PUBLIC = os.getenv('DB_HOST_PUBLIC')  # Fallback public IP
     DB_PORT = os.getenv('DB_PORT', '5432')
     DB_NAME = os.getenv('DB_NAME')
     DB_USER = os.getenv('DB_USER')
@@ -67,14 +70,33 @@ class PostgreSQLConnector:
         self.conn = None
 
     def connect(self):
-        self.conn = psycopg2.connect(
-            host=Config.DB_HOST,
-            port=Config.DB_PORT,
-            database=Config.DB_NAME,
-            user=Config.DB_USER,
-            password=Config.DB_PASSWORD
-        )
-        logger.info("Connected to PostgreSQL database")
+        """Try connecting to private IP first, fallback to public IP if it fails"""
+        hosts_to_try = [Config.DB_HOST]
+        if Config.DB_HOST_PUBLIC:
+            hosts_to_try.append(Config.DB_HOST_PUBLIC)
+
+        last_error = None
+        for host in hosts_to_try:
+            try:
+                logger.info(f"Attempting to connect to PostgreSQL at {host}:{Config.DB_PORT}")
+                self.conn = psycopg2.connect(
+                    host=host,
+                    port=Config.DB_PORT,
+                    database=Config.DB_NAME,
+                    user=Config.DB_USER,
+                    password=Config.DB_PASSWORD,
+                    connect_timeout=10
+                )
+                logger.info(f"Successfully connected to PostgreSQL database at {host}")
+                return
+            except psycopg2.OperationalError as e:
+                last_error = e
+                logger.warning(f"Failed to connect to {host}: {e}")
+                continue
+
+        # If we get here, all connection attempts failed
+        logger.error("Failed to connect to database using all available hosts")
+        raise last_error
 
     def close(self):
         if self.conn:
@@ -234,16 +256,42 @@ class BigQueryWriter:
         self.table = table
         self.full_table_id = f"{project}.{dataset}.{table}"
 
+        # Initialize BigQuery client using default credentials (works in production)
+        # This automatically uses:
+        # - Workload Identity (GKE)
+        # - Service Account attached to Cloud Run/Compute Engine
+        # - GOOGLE_APPLICATION_CREDENTIALS env var if set
+        try:
+            self.client = bigquery.Client(project=project)
+            logger.info("BigQuery client initialized with default credentials")
+        except Exception as e:
+            logger.error(f"Failed to initialize BigQuery client: {e}")
+            raise
+
     def write(self, df, if_exists='replace'):
-        logger.info(f"Writing data to BigQuery table: {self.full_table_id}")
-        pandas_gbq.to_gbq(
-            df,
-            destination_table=f"{self.dataset}.{self.table}",
-            project_id=self.project,
-            if_exists=if_exists,
-            progress_bar=True
+        logger.info(f"Writing {len(df)} rows to BigQuery table: {self.full_table_id}")
+
+        # Use BigQuery client directly (no browser auth needed)
+        job_config = bigquery.LoadJobConfig(
+            write_disposition=(
+                bigquery.WriteDisposition.WRITE_TRUNCATE
+                if if_exists == 'replace'
+                else bigquery.WriteDisposition.WRITE_APPEND
+            ),
+            autodetect=True  # Auto-detect schema from DataFrame
         )
-        logger.info(f"Wrote {len(df)} rows to BigQuery table: {self.full_table_id}")
+
+        try:
+            job = self.client.load_table_from_dataframe(
+                df,
+                f"{self.dataset}.{self.table}",
+                job_config=job_config
+            )
+            job.result()  # Wait for the job to complete
+            logger.info(f"Successfully wrote {len(df)} rows to BigQuery table: {self.full_table_id}")
+        except Exception as e:
+            logger.error(f"Failed to write to BigQuery: {e}")
+            raise
 
 
 # ================================================================
