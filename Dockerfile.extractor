@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY data_extractor.py .
-COPY .env .
+# COPY .env .
 
 # Run the extractor
 CMD ["python", "data_extractor.py"]
