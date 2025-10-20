@@ -32,43 +32,33 @@ This project implements a production-ready ETL pipeline on Google Cloud Platform
 
 ## Architecture
 
+For detailed architecture diagrams with complete data flow, see **[DIAGRAMS.md](DIAGRAMS.md)**
+
+### Quick Overview
+
+**Runtime Flow (Daily @ 5:00 AM UTC)**
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Cloud Composer (Airflow)                     │
-│                    Daily Schedule: 5:00 AM UTC                   │
-└────────────┬────────────┬────────────┬──────────────────────────┘
-             │            │            │
-             ▼            ▼            ▼
-      ┌───────────┐ ┌──────────┐ ┌─────────────┐
-      │ Extractor │ │  Loader  │ │  Validator  │
-      │ Cloud Run │ │Cloud Run │ │ Cloud Run   │
-      │    Job    │ │   Job    │ │    Job      │
-      └─────┬─────┘ └────┬─────┘ └──────┬──────┘
-            │            │               │
-            ▼            │               │
-       ┌────────┐        │               │
-       │CDC API │        │               │
-       └────┬───┘        │               │
-            │            │               │
-            ▼            │               │
-       ┌────────┐        │               │
-       │  GCS   │        │               │
-       │Transient│       │               │
-       │ Bucket │        │               │
-       └────┬───┘        │               │
-            │            │               │
-            ▼            ▼               │
-       ┌─────────────────────┐          │
-       │   PostgreSQL        │          │
-       │   (Cloud SQL)       │          │
-       │   VPC: 10.50.0.3    │          │
-       └──────────┬──────────┘          │
-                  │                     │
-                  ▼                     ▼
-             ┌─────────────────────────────┐
-             │        BigQuery             │
-             │  cleaned_cdc_chronic_disease│
-             └─────────────────────────────┘
+Cloud Composer DAG
+    ↓
+1. Data Extractor (Cloud Run Job)
+   → CDC API → 50K chunks → GCS → PostgreSQL
+    ↓
+2. Data Loader (Cloud Run Job)
+   → PostgreSQL → Clean/Validate → BigQuery (10K chunks)
+    ↓
+3. Data Validator (Cloud Run Job)
+   → BigQuery → Quality Checks → Email Alert (Success/Failure)
+```
+
+**CI/CD Flow (On Push to main)**
+```
+Git Push
+    ↓
+Cloud Build → Run Tests
+    ↓ (parallel)
+Build 3 Docker Images → Push to Artifact Registry
+    ↓
+Cloud Run Jobs auto-update with latest images
 ```
 
 ---
@@ -76,14 +66,14 @@ This project implements a production-ready ETL pipeline on Google Cloud Platform
 ## Components
 
 ### 1. Data Extractor (`data_extractor.py`)
-**Purpose**: Extracts data from CDC API and loads into PostgreSQL staging table
+**Purpose**: Extracts data from CDC API → GCS → PostgreSQL staging table
 
 **Process**:
 1. Fetches data from CDC API with retry logic
 2. Chunks data into 50,000-row segments
 3. Saves chunks to GCS transient bucket
 4. Loads chunks one-by-one into PostgreSQL staging table
-5. Cleans up transient files after successful load
+5. Cleans up transient files after successful load (unless `KEEP_TRANSIENT_FILES=true`)
 
 **Cloud Run Job**: `data-extractor`
 - **Image**: `us-central1-docker.pkg.dev/fluent-grin-474614-d8/etl-pipeline/data-extractor:latest`
@@ -91,13 +81,14 @@ This project implements a production-ready ETL pipeline on Google Cloud Platform
 - **Timeout**: 30 minutes
 
 ### 2. Data Loader (`data_loader.py`)
-**Purpose**: Loads cleaned data from PostgreSQL to BigQuery
+**Purpose**: Cleans PostgreSQL data and loads to BigQuery
 
 **Process**:
-1. Connects to PostgreSQL staging table
-2. Reads data in chunks
-3. Pushes to BigQuery using pandas-gbq
-4. Creates/updates BigQuery table schema automatically
+1. Reads from PostgreSQL staging table in chunks
+2. Cleans and normalizes data (remove duplicates, trim whitespace, handle nulls)
+3. Validates data quality (logical consistency, range checks)
+4. Loads to BigQuery in 10,000-row chunks
+5. Auto-creates/updates BigQuery table schema
 
 **Cloud Run Job**: `data-loader`
 - **Image**: `us-central1-docker.pkg.dev/fluent-grin-474614-d8/etl-pipeline/data-loader:latest`
@@ -110,8 +101,8 @@ This project implements a production-ready ETL pipeline on Google Cloud Platform
 **Validations**:
 - Table existence check
 - Row count validation (minimum 100,000 rows)
-- Schema validation (required columns present)
-- Data quality checks (distinct years, locations, topics)
+- Schema validation (required columns: yearstart, yearend, locationabbr, topic, loaded_at, load_date)
+- Data quality checks (distinct years ≥ 5, distinct locations ≥ 10, distinct topics)
 - Null value detection in critical fields
 
 **Cloud Run Job**: `data-validator`
@@ -124,10 +115,10 @@ This project implements a production-ready ETL pipeline on Google Cloud Platform
 
 **Features**:
 - Sequential task execution: Extractor → Loader → Validator
-- Email alerts on failure (any task fails)
-- Email alerts on success (all tasks succeed)
-- Configurable via Airflow Variables
-- Daily schedule at 5:00 AM UTC
+- Email alerts on failure (any task fails) - uses `TriggerRule.ONE_FAILED`
+- Email alerts on success (all tasks succeed) - uses `TriggerRule.ALL_SUCCESS`
+- Configurable via Airflow Variables (PROJECT_ID, REGION, ALERT_EMAILS)
+- Daily schedule at 5:00 AM UTC (`schedule_interval="0 5 * * *"`)
 
 ---
 
